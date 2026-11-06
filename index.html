@@ -38,6 +38,13 @@
     <button class="btn btn-primary" id="btn-enable-notify">Mitteilungen erlauben</button>
   </div>
 
+  <div class="viewbar">
+    <div class="segmented" role="tablist" aria-label="Ansicht">
+      <button role="tab" id="view-list" aria-selected="true">Liste</button>
+      <button role="tab" id="view-week" aria-selected="false">Woche</button>
+    </div>
+  </div>
+
   <nav class="filters" id="filters" aria-label="Bereich filtern"></nav>
 
   <main id="list" aria-live="polite"></main>
@@ -64,10 +71,18 @@
         <input name="room" list="rooms" maxlength="40" autocomplete="off" placeholder="z. B. Küche">
         <datalist id="rooms"></datalist>
       </label>
-      <div class="field">
+      <label class="field">
+        <span>Art</span>
+        <select name="kind">
+          <option value="repeat">Regelmäßig wiederholen</option>
+          <option value="season">Jedes Jahr in bestimmten Monaten</option>
+          <option value="once">Einmalig (z. B. Garantie-Ende)</option>
+        </select>
+      </label>
+      <div class="field" data-kind="repeat">
         <span>Wiederholen alle</span>
         <div class="row">
-          <input name="every" type="number" min="1" max="999" required inputmode="numeric">
+          <input name="every" type="number" min="1" max="999" inputmode="numeric">
           <select name="unit">
             <option value="days">Tage</option>
             <option value="weeks">Wochen</option>
@@ -76,11 +91,34 @@
           </select>
         </div>
       </div>
-      <label class="field">
+      <div class="field" data-kind="season">
+        <span>In diesen Monaten</span>
+        <div class="month-chips" id="month-chips"></div>
+      </div>
+      <label class="field" data-kind="once">
+        <span>Datum</span>
+        <input name="date" type="date">
+      </label>
+      <label class="field" data-kind="repeat season">
         <span>Zuletzt erledigt am</span>
         <input name="lastDone" type="date">
-        <small>Leer lassen, wenn die Aufgabe sofort fällig sein soll.</small>
+        <small>Leer lassen, wenn die Aufgabe noch nie erledigt wurde.</small>
       </label>
+      <label class="field" data-kind="repeat season">
+        <span>Nächster Termin</span>
+        <input name="planned" type="date">
+        <small id="planned-hint">Leer lassen = automatisch.</small>
+      </label>
+      <div class="field kids-field">
+        <label class="check">
+          <input type="checkbox" name="kids">
+          <span>Kinderaufgabe <small class="muted">(für „Aufgaben &amp; Taschengeld“)</small></span>
+        </label>
+        <label class="row points-row" data-kids>
+          <span>Punkte</span>
+          <input name="points" type="number" min="0" max="1000" inputmode="numeric">
+        </label>
+      </div>
       <label class="field">
         <span>Notiz</span>
         <textarea name="note" rows="2" maxlength="300" placeholder="optional, z. B. welches Mittel"></textarea>
@@ -99,6 +137,9 @@
   <dialog id="dlg-settings">
     <form method="dialog" id="form-settings">
       <h2 tabindex="-1" autofocus>Einstellungen</h2>
+
+      <h3>Gemeinsame Liste</h3>
+      <div class="share-box" id="share-box"></div>
 
       <h3>Erinnerungen</h3>
       <label class="field">
@@ -135,6 +176,18 @@
         </div>
         <p class="muted small">Die Kalender-Datei enthält alle Aufgaben als Serientermine mit Alarm – eine Rückfalllösung ohne Push.</p>
       </details>
+
+      <h3>Plan verteilen</h3>
+      <p class="muted small">„Verteilen“ (in der Wochenansicht) legt große Aufgaben wie Fenster oder Backofen auf diese Tage, damit nicht alles auf einmal kommt.</p>
+      <div class="field">
+        <span>Bevorzugte Tage</span>
+        <div class="month-chips" id="plan-days"></div>
+      </div>
+      <label class="row">
+        <span>Höchstens</span>
+        <input name="planMax" type="number" min="1" max="10" inputmode="numeric" style="width:80px">
+        <span>große Aufgaben pro Tag</span>
+      </label>
 
       <h3>Daten</h3>
       <div class="row wrap">

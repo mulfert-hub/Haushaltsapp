@@ -50,6 +50,29 @@ async function readJson(url, fallback) {
   return fallback;
 }
 
+// Mitteilung zeigen – bei Problemen mit den Zusatzangaben nur mit Titel und Text
+async function show(title, options) {
+  try {
+    await self.registration.showNotification(title, options);
+  } catch (e) {
+    await self.registration.showNotification(title, { body: options.body || "" });
+  }
+}
+
+// Wann zuletzt eine Push-Nachricht ankam – für den Push-Status in der App
+async function rememberPush(data) {
+  try {
+    const c = await caches.open("familie-push");
+    await c.put(self.location.origin + "/__familie-last-push.json",
+      new Response(JSON.stringify({ at: new Date().toISOString(), title: (data && data.title) || "", by: "haushalt" }), { headers: { "Content-Type": "application/json" } }));
+  } catch { /* ignorieren */ }
+}
+
+// Die App fragt, ob dieser Service Worker Mitteilungen zeigen kann
+self.addEventListener("message", (e) => {
+  if (e.data && e.data.type === "familie-push-ping" && e.ports && e.ports[0]) e.ports[0].postMessage({ type: "familie-push-pong" });
+});
+
 async function checkDueInBackground({ force = false } = {}) {
   const state = await readJson("__state.json", null);
   if (!state) return;
@@ -59,16 +82,13 @@ async function checkDueInBackground({ force = false } = {}) {
   const list = self.Schedule.tasksToNotify(state, notified, Date.now());
   if (!list.length) return;
   const { title, body } = self.Schedule.notificationText(list);
-  await self.registration.showNotification(title, {
-    body, tag: "haushalt-faellig", renotify: true, lang: "de",
-    icon: "icons/icon-192.png", badge: "icons/icon-192.png",
-  });
-  for (const t of list) notified[t.id] = self.Schedule.dayKey(self.Schedule.dueDate(t));
+  await show(title, { body, tag: "haushalt-faellig", icon: "icons/icon-192.png" });
+  for (const t of list) notified[t.id] = self.Schedule.dueKey(t);
   const c = await caches.open(STATE_CACHE);
   await c.put(new URL("__notified.json", self.registration.scope).href,
     new Response(JSON.stringify(notified), { headers: { "Content-Type": "application/json" } }));
   try {
-    const due = state.tasks.filter((t) => self.Schedule.daysLeft(t) <= 0).length;
+    const due = self.Schedule.activeTasks(state.tasks).filter((t) => self.Schedule.daysLeft(t) <= 0).length;
     if (self.navigator.setAppBadge) self.navigator.setAppBadge(due);
   } catch { /* nicht unterstützt */ }
 }
@@ -83,11 +103,9 @@ self.addEventListener("push", (e) => {
   e.waitUntil((async () => {
     let data = null;
     try { data = e.data ? e.data.json() : null; } catch { data = null; }
+    await rememberPush(data);
     if (!data || !data.title) return checkDueInBackground({ force: true });
-    await self.registration.showNotification(data.title, {
-      body: data.body || "", tag: data.tag || "haushalt-faellig", renotify: true, lang: "de",
-      icon: "icons/icon-192.png", badge: "icons/icon-192.png",
-    });
+    await show(data.title, { body: data.body || "", tag: data.tag || "haushalt-faellig", icon: "icons/icon-192.png" });
     try {
       if (typeof data.count === "number" && self.navigator.setAppBadge) self.navigator.setAppBadge(data.count);
     } catch { /* nicht unterstützt */ }

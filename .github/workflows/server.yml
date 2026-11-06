@@ -7,7 +7,7 @@ name: Push-Server veröffentlichen
 on:
   push:
     branches: [main]
-    paths: ["server/**", ".github/workflows/server.yml"]
+    paths: ["server/**", "js/schedule.js", ".github/workflows/server.yml"]
   workflow_dispatch:
 
 jobs:

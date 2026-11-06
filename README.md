@@ -1,17 +1,19 @@
 # Haushaltsplan
 
 Kleine Web-App (PWA) für wiederkehrende Haushaltsaufgaben wie Teppich reinigen,
-Ofen säubern oder Fenster putzen.
+Ofen säubern oder Fenster putzen – Teil der Familien-App „Familie Ulfert“.
 
-- **Aufgabenliste zum Abhaken:** Oben steht „Jetzt dran“, darunter „Nächste 7 Tage“ und „Später“.
-- **Timer:** Nach dem Abhaken startet der Countdown bis zur nächsten Wiederholung neu
-  (Balken und Restzeit, z. B. „in 3 Wochen“). Ein Versehen lässt sich direkt rückgängig machen.
-- **Erinnerungen:** Ist eine Aufgabe wieder dran, kommt zur eingestellten Uhrzeit eine Mitteilung
-  (mehrere fällige Aufgaben werden zu einer Mitteilung zusammengefasst).
-- **Anpassbar:** Aufgaben anlegen, bearbeiten und löschen, Intervall in Tagen, Wochen, Monaten oder Jahren,
-  Datum „zuletzt erledigt“, Notiz, Verlauf, Filter nach Bereich.
-- **Offline & privat:** Alle Daten bleiben auf dem Gerät (localStorage). Es gibt keinen Server und kein Konto.
-  Über „Sicherung exportieren/importieren“ lassen sich die Daten auf ein anderes Gerät übertragen.
+- **Aufgabenliste zum Abhaken:** „Jetzt dran“, „Nächste 7 Tage“, „Später“. Nach dem Abhaken startet der Timer neu.
+- **Wochenansicht:** Was an welchem Tag dran ist, Woche für Woche. „Große Aufgaben verteilen“ legt Fenster, Backofen & Co.
+  auf die bevorzugten Putztage (Standard: Samstag, höchstens 2 pro Tag), damit nicht alles auf einmal kommt.
+- **Gemeinsame Liste:** Alle Geräte der Familie sehen dieselben Aufgaben. Was einer abhakt, ist bei allen erledigt.
+  Einladen über *Einstellungen → Gemeinsame Liste → Familie einladen*, auf dem anderen Gerät *Beitreten* und Code eingeben.
+- **Erinnerungen per Push**, auch bei geschlossener App (über den Server in `server/`).
+- **Arten von Aufgaben:** regelmäßig (alle X Tage/Wochen/Monate/Jahre), **saisonal** (jedes Jahr im Oktober …) und
+  **einmalig** (z. B. Garantie-Ende einer Waschmaschine).
+- **Geräte & Wartung:** Filter, Kartuschen, Rauchmelder & Co. als eigener Bereich.
+- **Kinderaufgaben** mit Punkten – vorbereitet für die App „Aufgaben & Taschengeld“ (siehe Schnittstelle unten).
+- **Offline:** Die App läuft ohne Netz weiter und gleicht ab, sobald wieder Verbindung besteht.
 
 ## Standard-Intervalle
 
@@ -27,6 +29,11 @@ Utopia, EnBW, Hornbach, Beko) und stehen in `js/defaults.js`. Beispiele:
 | Backofen, Fenster, Matratze, Flusensieb | alle 3 Monate |
 | Gardinen, Heizkörper, Gefrierfach abtauen | alle 6 Monate |
 | Teppich grundreinigen, Rauchmelder testen | jedes Jahr |
+| Heizkörper entlüften, Gartenmöbel einwintern | jedes Jahr im Oktober |
+| Dachrinne von Laub befreien | jedes Jahr im November |
+| Rollläden reinigen, Grill reinigen | jedes Jahr im April |
+| Wasserfilter-Kartusche wechseln | alle 4 Wochen |
+| Staubsauger-Filter | alle 3 Monate |
 
 ## Installation
 
@@ -45,14 +52,18 @@ vom Home-Bildschirm öffnen. Erst dann erlaubt iOS Mitteilungen.
 > Jede installierte App hat ihren eigenen Speicher. Wer den Haushaltsplan vorher einzeln benutzt hat:
 > dort unter *Einstellungen → Sicherung exportieren* und in der Familien-App wieder importieren.
 
-## Push-Server
+## Server
 
-Damit Erinnerungen auch bei **geschlossener App** kommen (auch auf dem iPhone), gibt es in `server/` einen kleinen
-Server als **Cloudflare Worker** (kostenloser Tarif reicht, keine Wartung):
+Der Server (`server/`, Cloudflare Worker) speichert die gemeinsame Liste und verschickt die Erinnerungen.
 
-- Die App meldet das Gerät an und schickt bei jeder Änderung die Fälligkeitstermine (Name, Bereich, Datum).
-- Alle 15 Minuten prüft der Server, ob zur eingestellten Uhrzeit (in der Zeitzone des Geräts) etwas fällig ist,
-  und sendet dann eine Web-Push-Mitteilung. Jeder Termin wird nur einmal gemeldet.
+- **Gemeinsame Liste:** Ein Haushalt wird über einen geheimen Code angesprochen (gespeichert wird nur ein Hash).
+  Ändern zwei Geräte gleichzeitig, gewinnt je Aufgabe der neueste Stand – getrennt nach Angaben (Name, Intervall …)
+  und Terminen (erledigt, geplant). So geht ein Abhaken nicht verloren, wenn jemand anderes den Namen ändert.
+- **Erinnerungen:** Alle 15 Minuten prüft der Server je Gerät, ob zur eingestellten Uhrzeit (in der Zeitzone des Geräts)
+  etwas fällig ist, und sendet dann eine Web-Push-Mitteilung. Jeder Termin wird nur einmal gemeldet. Die Termine
+  rechnet er mit derselben Logik wie die App (`js/schedule.js`).
+- **iPhone:** iOS weckt bei Push nur den Service Worker der installierten App. Liegt Haushalt in der Familien-App,
+  meldet sich die App deshalb über deren Service Worker an (`familie-push.js` im Family-Dashboard).
 - Die Schlüssel für Web Push (VAPID) erzeugt der Server beim ersten Start selbst und speichert sie.
 - Nur die eigene Seite (`https://mulfert-hub.github.io`) darf den Server benutzen (`ALLOWED_ORIGINS` in `server/wrangler.toml`).
   Maximal 50 Geräte.
@@ -72,12 +83,33 @@ Server als **Cloudflare Worker** (kostenloser Tarif reicht, keine Wartung):
 Ohne Push-Server funktioniert die App weiter: Dann erinnert sie, solange sie läuft (Android zusätzlich per
 *Periodic Background Sync*), und es gibt den **Kalender-Export (.ics)** als Rückfalllösung.
 
+### Schnittstelle für „Aufgaben & Taschengeld“
+
+Kinderaufgaben (in der App: *Kinderaufgabe* ankreuzen, Punkte vergeben) kann eine andere App der Familie lesen und abhaken:
+
+```http
+GET  /api/household/kids?tz=Europe/Berlin
+X-Household-Code: XXXX-XXXX-XXXX-XXXX-XXXX
+→ { "tasks": [ { "id", "name", "room", "points", "note", "due": "2026-11-08", "dueNow": false, "lastDone", "lastDoneBy" } ] }
+
+POST /api/household/complete
+{ "code": "XXXX-…", "taskId": "…", "by": "Name des Kindes" }
+→ { "ok": true, "task": { … } }
+```
+
+Das Abhaken landet sofort in der gemeinsamen Liste (mit `lastDoneBy`), der Timer startet neu.
+
+### Diagnose
+
+*Actions → „Push-Server Diagnose“ → Run workflow* zeigt je Gerät Push-Dienst, Erinnerungszeit, letzten Abgleich und
+was der Push-Dienst auf Test und Erinnerung geantwortet hat – ohne Adressen, Schlüssel oder Aufgabennamen.
+
 ### Entwicklung des Servers
 
 ```bash
 cd server
 npm install
-npm test                 # Verschlüsselung, VAPID, Zeitplan, API
+npm test                 # Verschlüsselung, VAPID, Zeitplan, gemeinsame Liste, API
 npx wrangler dev --test-scheduled   # lokal; Zeitplan auslösen: curl "localhost:8787/__scheduled"
 ```
 

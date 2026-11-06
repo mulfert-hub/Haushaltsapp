@@ -237,3 +237,41 @@ h2[tabindex="-1"]:focus { outline: none; }
 
 .advanced summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
 .advanced[open] { display: grid; gap: 12px; }
+
+/* Ansicht umschalten */
+.viewbar { max-width: 720px; margin: 12px auto 0; padding: 0 16px; }
+.segmented { display: inline-flex; background: var(--surface-2); border-radius: 10px; padding: 3px; gap: 2px; }
+.segmented button { border: 0; background: transparent; padding: 7px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; color: var(--muted); }
+.segmented button[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.segmented button:active { transform: scale(.96); }
+
+/* Wochenansicht */
+.week-nav { display: flex; align-items: center; justify-content: space-between; margin: 14px 0 4px; }
+.week-nav .icon-btn { font-size: 1.6rem; color: var(--text); }
+.week-nav .icon-btn[disabled] { opacity: .3; pointer-events: none; }
+.week-tools { display: flex; justify-content: flex-end; margin-bottom: 4px; }
+.day-title.plan-day span:first-child::after { content: " · Putztag"; color: var(--accent); text-transform: none; letter-spacing: 0; }
+.day-empty { color: var(--muted); font-size: .88rem; padding: 4px 4px 2px; }
+
+/* Archiv */
+.archive { margin-top: 20px; }
+.archive summary { cursor: pointer; color: var(--muted); font-size: .9rem; padding: 6px 4px; }
+.archive .card-list { margin-top: 8px; opacity: .75; }
+
+/* Chips für Monate / Wochentage */
+.month-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip.small { padding: 5px 10px; font-size: .85rem; }
+
+/* Kinder */
+.kids-field { gap: 8px; }
+.points-row { gap: 10px; }
+.points-row span { font-size: .85rem; color: var(--muted); font-weight: 600; }
+.points-row input { width: 90px; }
+
+/* Gemeinsame Liste */
+.share-box { display: grid; gap: 8px; }
+.share-box p { margin: 0; }
+.join-row { display: flex; gap: 8px; }
+.join-row input { text-transform: uppercase; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
+.code-line code { font-size: .95rem; user-select: all; -webkit-user-select: all; }
+.error-text { color: var(--danger); }

@@ -54,7 +54,7 @@
   <!-- Aufgabe bearbeiten -->
   <dialog id="dlg-task">
     <form method="dialog" id="form-task">
-      <h2 id="dlg-task-title">Aufgabe</h2>
+      <h2 id="dlg-task-title" tabindex="-1" autofocus>Aufgabe</h2>
       <label class="field">
         <span>Name</span>
         <input name="name" required maxlength="80" autocomplete="off" placeholder="z. B. Fenster putzen">
@@ -98,10 +98,9 @@
   <!-- Einstellungen -->
   <dialog id="dlg-settings">
     <form method="dialog" id="form-settings">
-      <h2>Einstellungen</h2>
+      <h2 tabindex="-1" autofocus>Einstellungen</h2>
 
       <h3>Erinnerungen</h3>
-      <p class="muted" id="notify-status"></p>
       <label class="field">
         <span>Uhrzeit der Erinnerung</span>
         <input name="notifyTime" type="time" required>
@@ -110,16 +109,32 @@
         <input type="checkbox" name="notifyEnabled">
         <span>Mitteilungen senden, wenn Aufgaben fällig werden</span>
       </label>
-      <label class="field">
-        <span>Push-Server</span>
-        <input name="pushServer" type="url" inputmode="url" autocomplete="off" spellcheck="false">
-        <small id="push-status"></small>
-      </label>
+
+      <div class="diag-box">
+        <div class="diag-head">
+          <strong>Push-Status</strong>
+          <button type="button" class="link-btn" id="btn-diag-refresh">Aktualisieren</button>
+        </div>
+        <ul class="diag" id="push-diag"><li>Wird geprüft …</li></ul>
+      </div>
       <div class="row wrap">
         <button type="button" class="btn" id="btn-test-notify">Test-Mitteilung</button>
-        <button type="button" class="btn" id="btn-ics">Kalender-Erinnerungen (.ics)</button>
+        <button type="button" class="btn" id="btn-test-later">Test in 20 Sek.</button>
       </div>
-      <p class="muted small">Die Kalender-Datei enthält alle kommenden Termine mit Alarm, eine Rückfall­lösung, falls dein Gerät keine Web-Mitteilungen im Hintergrund zustellt.</p>
+      <p class="feedback" id="settings-feedback" role="status" aria-live="polite" hidden></p>
+
+      <details class="advanced">
+        <summary>Erweitert</summary>
+        <label class="field">
+          <span>Push-Server</span>
+          <input name="pushServer" type="url" inputmode="url" autocomplete="off" spellcheck="false">
+          <small id="push-status"></small>
+        </label>
+        <div class="row wrap">
+          <button type="button" class="btn" id="btn-ics">Kalender-Erinnerungen (.ics)</button>
+        </div>
+        <p class="muted small">Die Kalender-Datei enthält alle Aufgaben als Serientermine mit Alarm – eine Rückfalllösung ohne Push.</p>
+      </details>
 
       <h3>Daten</h3>
       <div class="row wrap">

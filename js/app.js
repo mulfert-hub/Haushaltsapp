@@ -234,6 +234,30 @@ function showToast(text, withUndo = true) {
 }
 function hideToast() { $("#toast").hidden = true; }
 
+/** Rückmeldung: im offenen Einstellungen-Dialog direkt dort, sonst als Hinweis unten. */
+let feedbackTimer = null;
+function feedback(text, kind = "ok") {
+  const dlg = $("#dlg-settings");
+  if (dlg.open) {
+    const el = $("#settings-feedback");
+    el.textContent = text;
+    el.className = "feedback" + (kind === "error" ? " error" : kind === "busy" ? " busy" : "");
+    el.hidden = false;
+    clearTimeout(feedbackTimer);
+    if (kind !== "busy") feedbackTimer = setTimeout(() => { el.hidden = true; }, 12000);
+  } else {
+    showToast(text, false);
+  }
+}
+
+/** Button während einer Aktion sperren und beschriften. */
+async function busy(btn, label, fn) {
+  const old = btn.textContent;
+  btn.classList.add("busy");
+  btn.textContent = label;
+  try { return await fn(); } finally { btn.classList.remove("busy"); btn.textContent = old; }
+}
+
 // ---------- Dialog: Aufgabe ----------
 
 let editingId = null;
@@ -261,6 +285,7 @@ function openTaskDialog(id) {
     : "";
   $("#dlg-task").showModal();
   if (!t) f.name.focus();
+  else $("#dlg-task-title").focus();
 }
 
 function saveTaskDialog() {
@@ -469,6 +494,92 @@ function pushStatusText() {
   return "Push-Server eingetragen. Erlaube Mitteilungen, um das Gerät anzumelden.";
 }
 
+// ---------- Push-Status (Diagnose) ----------
+
+const timeFmt = new Intl.DateTimeFormat("de-DE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+function describeResult(r) {
+  if (!r) return null;
+  const when = r.at ? timeFmt.format(new Date(r.at)) : "";
+  if (r.ok) return { cls: "ok", text: `vom Push-Dienst angenommen (${r.status}), ${when}` };
+  return { cls: "bad", text: `abgelehnt (${r.status || "Fehler"}${r.reason ? ": " + r.reason : ""}), ${when}` };
+}
+
+async function renderDiag() {
+  const items = [];
+  const add = (cls, label, text) => items.push(`<li class="${cls}"><div><b>${escapeHtml(label)}:</b> <span>${escapeHtml(text)}</span></div></li>`);
+
+  if (!("Notification" in window)) {
+    add("bad", "Mitteilungen", isIOS() && !isStandalone() ? "nur in der App vom Home-Bildschirm möglich" : "von diesem Browser nicht unterstützt");
+  } else if (Notification.permission === "granted") add("ok", "Mitteilungen", "erlaubt");
+  else if (Notification.permission === "denied") add("bad", "Mitteilungen", "blockiert – in den iPhone-Einstellungen unter Mitteilungen erlauben");
+  else add("bad", "Mitteilungen", "noch nicht erlaubt – „Test-Mitteilung“ tippen");
+
+  add(isStandalone() ? "ok" : "info", "Geöffnet als", isStandalone() ? "App vom Home-Bildschirm" : "Browser-Seite");
+
+  let sub = null;
+  try { sub = swReg && "pushManager" in swReg ? await swReg.pushManager.getSubscription() : null; } catch { sub = null; }
+  if (!("PushManager" in window)) add("bad", "Push", "nicht verfügbar");
+  else if (sub) add("ok", "Push-Abo", new URL(sub.endpoint).host);
+  else add("bad", "Push-Abo", pushError ? "fehlgeschlagen: " + pushError : "keins");
+
+  if (!pushServer()) add("bad", "Server", "nicht eingetragen");
+  else if (!sub) add("info", "Server", new URL(pushServer()).host);
+  else {
+    try {
+      const st = await api("/api/status", { method: "POST", body: JSON.stringify({ endpoint: sub.endpoint }) });
+      if (!st.registered) add("bad", "Server", "Gerät nicht angemeldet");
+      else {
+        add("ok", "Server", `angemeldet, ${st.tasks} Aufgaben, Erinnerung um ${st.notifyTime}${st.enabled ? "" : " (aus)"}`);
+        const t = describeResult(st.lastTest);
+        if (t) add(t.cls, "Letzter Test", t.text);
+        const p = describeResult(st.lastPush);
+        add(p ? p.cls : "info", "Letzte Erinnerung", p ? p.text : "noch keine gesendet");
+      }
+    } catch (e) {
+      add("bad", "Server", "nicht erreichbar: " + e.message);
+    }
+  }
+  $("#push-diag").innerHTML = items.join("");
+}
+
+async function testNotification(delay) {
+  if (!("Notification" in window)) { feedback(notifySupportText(), "error"); return; }
+  if (Notification.permission === "default") {
+    await requestNotify();
+  }
+  if (Notification.permission !== "granted") {
+    feedback("Mitteilungen sind nicht erlaubt. iPhone: Einstellungen → Mitteilungen → Familie Ulfert.", "error");
+    renderDiag();
+    return;
+  }
+  feedback("Wird gesendet …", "busy");
+  if (pushServer() && !pushActive()) await enablePush();
+  if (!pushActive()) {
+    await showNotification("Test: Haushaltsplan", { body: "Lokale Mitteilung (ohne Server).", tag: "haushalt-test" });
+    feedback("Lokale Test-Mitteilung ausgelöst (ohne Server)" + (pushError ? ". Server-Anmeldung fehlgeschlagen: " + pushError : "."), pushError ? "error" : "ok");
+    renderDiag();
+    return;
+  }
+  try {
+    const sub = await swReg.pushManager.getSubscription();
+    await syncPush(sub);
+    const r = await api("/api/test", { method: "POST", body: JSON.stringify({ endpoint: sub.endpoint, delay }) });
+    if (r.scheduled) {
+      feedback(`Test kommt in ${r.scheduled} Sekunden – jetzt App schließen oder iPhone sperren.`);
+      setTimeout(renderDiag, (r.scheduled + 4) * 1000);
+    } else if (r.ok) {
+      feedback(`✓ Vom Push-Dienst angenommen (${r.status}). Die Mitteilung sollte gleich erscheinen. Falls nicht, „Test in 20 Sek.“ tippen und die App schließen.`);
+    } else {
+      feedback(`✗ Push-Dienst lehnt ab (${r.status}${r.reason ? ": " + r.reason : ""}).`, "error");
+    }
+  } catch (e) {
+    pushError = e.message;
+    feedback("✗ Server-Fehler: " + e.message, "error");
+  }
+  renderDiag();
+}
+
 // ---------- Kalender (.ics) ----------
 
 function icsEscape(s) {
@@ -504,7 +615,22 @@ function exportIcs() {
     );
   }
   lines.push("END:VCALENDAR");
-  download("haushaltsplan.ics", lines.join("\r\n"), "text/calendar");
+  shareOrDownload("haushaltsplan.ics", lines.join("\r\n"), "text/calendar");
+}
+
+/** Auf dem Handy über das Teilen-Menü (speichern, AirDrop, Kalender …), sonst als Download. */
+function shareOrDownload(name, content, type) {
+  try {
+    const file = new File([content], name, { type });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: name })
+        .then(() => feedback("✓ Geteilt: " + name))
+        .catch((e) => { if (e && e.name !== "AbortError") feedback("Teilen fehlgeschlagen: " + e.message, "error"); });
+      return;
+    }
+  } catch { /* weiter mit Download */ }
+  download(name, content, type);
+  feedback("✓ Datei „" + name + "“ wird heruntergeladen");
 }
 
 function download(name, content, type) {
@@ -525,9 +651,11 @@ function openSettings() {
   f.notifyEnabled.checked = !!state.settings.notifyEnabled;
   f.pushServer.value = pushServer();
   f.pushServer.placeholder = "https://haushalt-push.….workers.dev";
-  $("#notify-status").textContent = notifySupportText();
   $("#push-status").textContent = pushStatusText();
+  $("#settings-feedback").hidden = true;
   $("#dlg-settings").showModal();
+  $("#dlg-settings h2").focus(); // nicht das Uhrzeit-Feld – sonst öffnet iOS sofort die Auswahl
+  renderDiag();
 }
 
 async function saveSettings() {
@@ -544,6 +672,7 @@ async function saveSettings() {
   }
   save();
   updateNotifyBanner();
+  showToast("✓ Einstellungen gespeichert", false);
   if (state.settings.notifyEnabled && "Notification" in window && Notification.permission === "default") await requestNotify();
   else if (serverChanged) await enablePush();
   if (timeChanged) checkDue();
@@ -567,9 +696,9 @@ function importBackup(file) {
       save();
       render();
       $("#dlg-settings").close();
-      showToast(`${state.tasks.length} Aufgaben importiert`, false);
+      showToast(`✓ ${state.tasks.length} Aufgaben importiert`, false);
     } catch {
-      alert("Die Datei konnte nicht gelesen werden.");
+      feedback("✗ Die Datei konnte nicht gelesen werden.", "error");
     }
   };
   reader.readAsText(file);
@@ -582,7 +711,7 @@ function addMissingDefaults() {
   for (const d of add) state.tasks.push({ id: uid(), ...d, lastDone: null, createdAt: now, history: [], note: "" });
   save();
   render();
-  showToast(add.length ? `${add.length} Standard-Aufgaben ergänzt` : "Alle Standard-Aufgaben sind schon vorhanden", false);
+  feedback(add.length ? `✓ ${add.length} Standard-Aufgaben ergänzt` : "Alle Standard-Aufgaben sind schon vorhanden");
 }
 
 // ---------- Ereignisse ----------
@@ -619,30 +748,15 @@ $("#btn-settings").addEventListener("click", openSettings);
 $("#btn-settings-close").addEventListener("click", () => $("#dlg-settings").close());
 $("#form-settings").addEventListener("submit", saveSettings);
 $("#btn-enable-notify").addEventListener("click", requestNotify);
-$("#btn-test-notify").addEventListener("click", async () => {
-  if (!("Notification" in window)) { alert(notifySupportText()); return; }
-  if (Notification.permission !== "granted") await requestNotify();
-  if (Notification.permission === "granted") {
-    if (pushServer() && !pushActive()) await enablePush();
-    if (pushActive()) {
-      try {
-        const sub = await swReg.pushManager.getSubscription();
-        await syncPush(sub);
-        await api("/api/test", { method: "POST", body: JSON.stringify({ endpoint: sub.endpoint }) });
-      } catch (e) {
-        pushError = e.message;
-        await showNotification("Test: Haushaltsplan", { body: "Lokale Mitteilung (Server nicht erreichbar).", tag: "haushalt-test" });
-      }
-    } else {
-      await showNotification("Test: Haushaltsplan", { body: "So sehen deine Erinnerungen aus.", tag: "haushalt-test" });
-    }
-  }
-  $("#notify-status").textContent = notifySupportText();
-  $("#push-status").textContent = pushStatusText();
-});
+$("#btn-test-notify").addEventListener("click", (e) => busy(e.currentTarget, "Sende …", () => testNotification(0)));
+$("#btn-test-later").addEventListener("click", (e) => busy(e.currentTarget, "Sende …", () => testNotification(20)));
+$("#btn-diag-refresh").addEventListener("click", (e) => busy(e.currentTarget, "Prüfe …", async () => {
+  if ("Notification" in window && Notification.permission === "granted") await enablePush();
+  await renderDiag();
+}));
 $("#btn-ics").addEventListener("click", exportIcs);
 $("#btn-export").addEventListener("click", () =>
-  download(`haushaltsplan-${S.dayKey(Date.now())}.json`, JSON.stringify(state, null, 2), "application/json"));
+  shareOrDownload(`haushaltsplan-${S.dayKey(Date.now())}.json`, JSON.stringify(state, null, 2), "application/json"));
 $("#import-file").addEventListener("change", (e) => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ""; });
 $("#btn-add-defaults").addEventListener("click", addMissingDefaults);
 $("#btn-reset").addEventListener("click", () => {
@@ -654,6 +768,7 @@ $("#btn-reset").addEventListener("click", () => {
   writeNotified({});
   render();
   $("#dlg-settings").close();
+  showToast("✓ Zurückgesetzt", false);
 });
 
 $("#toast-undo").addEventListener("click", undo);

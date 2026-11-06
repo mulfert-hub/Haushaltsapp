@@ -8,7 +8,8 @@
 //   GET    /api/vapid-public-key       → { publicKey }
 //   PUT    /api/subscription           → Abonnement + Termine speichern/aktualisieren
 //   DELETE /api/subscription           → Abonnement entfernen ({ endpoint })
-//   POST   /api/test                   → Test-Mitteilung an dieses Gerät ({ endpoint })
+//   POST   /api/test                   → Test-Mitteilung an dieses Gerät ({ endpoint, delay? Sekunden })
+//   POST   /api/status                 → Was der Server über dieses Gerät weiß ({ endpoint })
 //   GET    /api/health                 → { ok: true }
 
 import { generateVapidKeys, sendPush } from "./webpush.js";
@@ -132,7 +133,30 @@ export function buildMessage(tasks, totalDue) {
 
 // ---------- Anfragen ----------
 
-async function handle(request, env) {
+function pushResult(res) {
+  return { at: new Date().toISOString(), ok: !!res.ok, status: res.status || 0, reason: res.reason || "" };
+}
+
+async function sendTest(env, key, rec) {
+  let res;
+  try {
+    res = await sendPush(rec.subscription,
+      { title: "Test: Haushaltsplan", body: "Push-Mitteilungen über den Server funktionieren.", tag: "haushalt-test" },
+      { vapid: await getVapid(env), subject: subjectOf(env), urgency: "high" });
+  } catch (e) {
+    res = { ok: false, status: 0, reason: String((e && e.message) || e) };
+  }
+  if (res.gone) {
+    await env.HAUSHALT_KV.delete(key);
+  } else {
+    const fresh = (await env.HAUSHALT_KV.get(key, "json")) || rec;
+    fresh.lastTest = pushResult(res);
+    await env.HAUSHALT_KV.put(key, JSON.stringify(fresh));
+  }
+  return res;
+}
+
+async function handle(request, env, ctx) {
   const url = new URL(request.url);
   const cors = corsHeaders(request, env);
 
@@ -160,7 +184,11 @@ async function handle(request, env) {
     const oldNotified = (existing && existing.notified) || {};
     const notified = {};
     for (const t of rec.tasks) if (oldNotified[t.id] === t.due) notified[t.id] = t.due;
-    await env.HAUSHALT_KV.put(key, JSON.stringify({ ...rec, notified, updatedAt: new Date().toISOString() }));
+    await env.HAUSHALT_KV.put(key, JSON.stringify({
+      ...rec, notified, updatedAt: new Date().toISOString(),
+      lastPush: existing ? existing.lastPush || null : null,
+      lastTest: existing ? existing.lastTest || null : null,
+    }));
     return json({ ok: true }, 200, cors);
   }
 
@@ -173,13 +201,32 @@ async function handle(request, env) {
 
   if (url.pathname === "/api/test" && request.method === "POST") {
     const body = await readBody(request);
+    const key = typeof body.endpoint === "string" ? await subKey(body.endpoint) : null;
+    const rec = key && (await env.HAUSHALT_KV.get(key, "json"));
+    if (!rec) throw new HttpError(404, "Gerät ist beim Server nicht angemeldet");
+    const delay = Math.max(0, Math.min(25, Number(body.delay) || 0));
+    if (delay > 0 && ctx) {
+      // Später senden, damit man die App vorher schließen kann.
+      ctx.waitUntil(new Promise((r) => setTimeout(r, delay * 1000)).then(() => sendTest(env, key, rec)));
+      return json({ ok: true, scheduled: delay }, 200, cors);
+    }
+    const res = await sendTest(env, key, rec);
+    return json({ ok: res.ok, status: res.status, reason: res.reason || "" }, 200, cors);
+  }
+
+  if (url.pathname === "/api/status" && request.method === "POST") {
+    const body = await readBody(request);
     const rec = typeof body.endpoint === "string" && (await env.HAUSHALT_KV.get(await subKey(body.endpoint), "json"));
-    if (!rec) throw new HttpError(404, "Gerät nicht angemeldet");
-    const res = await sendPush(rec.subscription,
-      { title: "Test: Haushaltsplan", body: "Push-Mitteilungen über den Server funktionieren.", tag: "haushalt-test" },
-      { vapid: await getVapid(env), subject: subjectOf(env), urgency: "high" });
-    if (res.gone) await env.HAUSHALT_KV.delete(await subKey(body.endpoint));
-    return json({ ok: res.ok, status: res.status }, res.ok ? 200 : 502, cors);
+    if (!rec) return json({ registered: false }, 200, cors);
+    return json({
+      registered: true,
+      pushService: new URL(rec.subscription.endpoint).host,
+      tasks: rec.tasks.length,
+      tz: rec.tz, notifyTime: rec.notifyTime, enabled: rec.enabled,
+      updatedAt: rec.updatedAt || null,
+      lastPush: rec.lastPush || null,
+      lastTest: rec.lastTest || null,
+    }, 200, cors);
   }
 
   return json({ error: "Nicht gefunden" }, 404, cors);
@@ -208,13 +255,16 @@ export async function runSchedule(env, now = new Date(), send = sendPush) {
           await env.HAUSHALT_KV.delete(name);
           result.removed++;
         } else if (res.ok) {
+          rec.lastPush = pushResult(res);
           rec.notified = rec.notified || {};
           for (const t of tasks) rec.notified[t.id] = t.due;
           await env.HAUSHALT_KV.put(name, JSON.stringify(rec));
           result.sent++;
         } else {
           result.failed++;
-          console.log("Push fehlgeschlagen", res.status);
+          rec.lastPush = pushResult(res);
+          await env.HAUSHALT_KV.put(name, JSON.stringify(rec));
+          console.log("Push fehlgeschlagen", res.status, res.reason);
         }
       } catch (e) {
         result.failed++;
@@ -226,9 +276,9 @@ export async function runSchedule(env, now = new Date(), send = sendPush) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     try {
-      return await handle(request, env);
+      return await handle(request, env, ctx);
     } catch (e) {
       const status = e instanceof HttpError ? e.status : 500;
       if (status === 500) console.log("Fehler", e && e.stack);

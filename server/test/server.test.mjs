@@ -188,3 +188,47 @@ test("API: fremde Herkunft wird abgelehnt, CORS-Vorabfrage klappt", async () => 
   const del = await worker.fetch(req("DELETE", "/api/subscription", { endpoint: "https://x/y" }), e);
   assert.equal(del.status, 200);
 });
+
+test("API: Test-Mitteilung meldet Antwort des Push-Dienstes, Status zeigt sie an", async () => {
+  const e = env();
+  const browser = makeBrowserSubscription();
+  await worker.fetch(req("PUT", "/api/subscription",
+    { subscription: browser.subscription, tz: "Europe/Berlin", notifyTime: "09:00", tasks: [] }), e);
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response('{"reason":"BadJwtToken"}', { status: 403 });
+  try {
+    const r = await (await worker.fetch(req("POST", "/api/test", { endpoint: browser.subscription.endpoint }), e)).json();
+    assert.equal(r.ok, false);
+    assert.equal(r.status, 403);
+    assert.match(r.reason, /BadJwtToken/);
+
+    const st = await (await worker.fetch(req("POST", "/api/status", { endpoint: browser.subscription.endpoint }), e)).json();
+    assert.equal(st.registered, true);
+    assert.equal(st.pushService, "push.example.test");
+    assert.equal(st.lastTest.status, 403);
+
+    // Termin-Abgleich behält das letzte Testergebnis
+    await worker.fetch(req("PUT", "/api/subscription",
+      { subscription: browser.subscription, tz: "Europe/Berlin", notifyTime: "09:00", tasks: [] }), e);
+    const st2 = await (await worker.fetch(req("POST", "/api/status", { endpoint: browser.subscription.endpoint }), e)).json();
+    assert.equal(st2.lastTest.status, 403);
+
+    globalThis.fetch = async () => new Response(null, { status: 201 });
+    const ok = await (await worker.fetch(req("POST", "/api/test", { endpoint: browser.subscription.endpoint }), e)).json();
+    assert.equal(ok.ok, true);
+    assert.equal(ok.status, 201);
+
+    // Verzögert: Antwort sofort, Versand über waitUntil
+    const pending = [];
+    const ctx = { waitUntil: (p) => pending.push(p) };
+    const d = await (await worker.fetch(req("POST", "/api/test", { endpoint: browser.subscription.endpoint, delay: 0.01 }), e, ctx)).json();
+    assert.equal(d.scheduled, 0.01);
+    await Promise.all(pending);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  const unknown = await (await worker.fetch(req("POST", "/api/status", { endpoint: "https://x/unbekannt" }), e)).json();
+  assert.equal(unknown.registered, false);
+});

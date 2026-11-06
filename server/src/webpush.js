@@ -101,5 +101,9 @@ export async function sendPush(subscription, payload, { vapid, subject, ttl = 86
     },
     body,
   });
-  return { ok: res.ok, status: res.status, gone: res.status === 404 || res.status === 410 };
+  let reason = "";
+  if (!res.ok) {
+    try { reason = (await res.text()).slice(0, 300); } catch { reason = ""; }
+  }
+  return { ok: res.ok, status: res.status, gone: res.status === 404 || res.status === 410, reason };
 }

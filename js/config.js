@@ -2,7 +2,7 @@
 // aus Umgebungsvariablen übernommen, falls gesetzt (siehe scripts/build.mjs).
 export const CONFIG = {
   // Adresse des Push-Servers (Cloudflare Worker), z. B. "https://haushalt-push.<name>.workers.dev"
-  pushServerUrl: "",
+  pushServerUrl: "https://haushalt-push.mulfert.workers.dev",
   // Adresse der Familien-App für den Zurück-Knopf (wird vom Family-Dashboard gesetzt)
   familieUrl: "",
 };

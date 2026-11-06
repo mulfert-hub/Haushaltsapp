@@ -66,7 +66,7 @@ Server als **Cloudflare Worker** (kostenloser Tarif reicht, keine Wartung):
    `CLOUDFLARE_API_TOKEN` und `CLOUDFLARE_ACCOUNT_ID`.
 5. *Actions → „Push-Server veröffentlichen“ → Run workflow*. Der Workflow legt den Speicher an und veröffentlicht den Worker.
    Die Adresse steht am Ende des Logs, z. B. `https://haushalt-push.<name>.workers.dev`.
-6. Diese Adresse in `js/config.js` bei `pushServerUrl` eintragen (oder in der App unter *Einstellungen → Push-Server*).
+6. Diese Adresse in `js/config.js` bei `pushServerUrl` eintragen (erledigt: `https://haushalt-push.mulfert.workers.dev`).
 7. In der App *Einstellungen → Test-Mitteilung* tippen. Kommt „Push-Mitteilungen über den Server funktionieren“, ist alles fertig.
 
 Ohne Push-Server funktioniert die App weiter: Dann erinnert sie, solange sie läuft (Android zusätzlich per

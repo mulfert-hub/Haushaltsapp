@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Haushaltsplan</title>
+  <meta name="description" content="Wiederkehrende Haushaltsaufgaben abhaken und rechtzeitig erinnert werden.">
+  <meta name="theme-color" content="#2f7d5b">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Haushalt">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <h1>Haushaltsplan</h1>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="btn-settings" aria-label="Einstellungen">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Zm7.4-2.5.1-1-.1-1 2.1-1.6-2-3.5-2.5 1a7.5 7.5 0 0 0-1.7-1L15 3h-4l-.4 2.6c-.6.3-1.2.6-1.7 1l-2.5-1-2 3.5L6.5 11l-.1 1 .1 1-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1L11 21h4l.4-2.6c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5Z"/></svg>
+        </button>
+      </div>
+    </div>
+    <p class="summary" id="summary"></p>
+  </header>
+
+  <div class="banner" id="notify-banner" hidden>
+    <p id="notify-banner-text">Erlaube Mitteilungen, damit du erinnert wirst, wenn eine Aufgabe wieder dran ist.</p>
+    <button class="btn btn-primary" id="btn-enable-notify">Mitteilungen erlauben</button>
+  </div>
+
+  <nav class="filters" id="filters" aria-label="Bereich filtern"></nav>
+
+  <main id="list" aria-live="polite"></main>
+
+  <button class="fab" id="btn-add" aria-label="Aufgabe hinzufügen">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>
+  </button>
+
+  <div class="toast" id="toast" role="status" hidden>
+    <span id="toast-text"></span>
+    <button class="toast-btn" id="toast-undo">Rückgängig</button>
+  </div>
+
+  <!-- Aufgabe bearbeiten -->
+  <dialog id="dlg-task">
+    <form method="dialog" id="form-task">
+      <h2 id="dlg-task-title">Aufgabe</h2>
+      <label class="field">
+        <span>Name</span>
+        <input name="name" required maxlength="80" autocomplete="off" placeholder="z. B. Fenster putzen">
+      </label>
+      <label class="field">
+        <span>Bereich</span>
+        <input name="room" list="rooms" maxlength="40" autocomplete="off" placeholder="z. B. Küche">
+        <datalist id="rooms"></datalist>
+      </label>
+      <div class="field">
+        <span>Wiederholen alle</span>
+        <div class="row">
+          <input name="every" type="number" min="1" max="999" required inputmode="numeric">
+          <select name="unit">
+            <option value="days">Tage</option>
+            <option value="weeks">Wochen</option>
+            <option value="months">Monate</option>
+            <option value="years">Jahre</option>
+          </select>
+        </div>
+      </div>
+      <label class="field">
+        <span>Zuletzt erledigt am</span>
+        <input name="lastDone" type="date">
+        <small>Leer lassen, wenn die Aufgabe sofort fällig sein soll.</small>
+      </label>
+      <label class="field">
+        <span>Notiz</span>
+        <textarea name="note" rows="2" maxlength="300" placeholder="optional, z. B. welches Mittel"></textarea>
+      </label>
+      <div id="history"></div>
+      <div class="dlg-actions">
+        <button type="button" class="btn btn-danger" id="btn-delete">Löschen</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="btn-cancel">Abbrechen</button>
+        <button type="submit" class="btn btn-primary">Speichern</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Einstellungen -->
+  <dialog id="dlg-settings">
+    <form method="dialog" id="form-settings">
+      <h2>Einstellungen</h2>
+
+      <h3>Erinnerungen</h3>
+      <p class="muted" id="notify-status"></p>
+      <label class="field">
+        <span>Uhrzeit der Erinnerung</span>
+        <input name="notifyTime" type="time" required>
+      </label>
+      <label class="check">
+        <input type="checkbox" name="notifyEnabled">
+        <span>Mitteilungen senden, wenn Aufgaben fällig werden</span>
+      </label>
+      <div class="row wrap">
+        <button type="button" class="btn" id="btn-test-notify">Test-Mitteilung</button>
+        <button type="button" class="btn" id="btn-ics">Kalender-Erinnerungen (.ics)</button>
+      </div>
+      <p class="muted small">Die Kalender-Datei enthält alle kommenden Termine mit Alarm, eine Rückfall­lösung, falls dein Gerät keine Web-Mitteilungen im Hintergrund zustellt.</p>
+
+      <h3>Daten</h3>
+      <div class="row wrap">
+        <button type="button" class="btn" id="btn-export">Sicherung exportieren</button>
+        <label class="btn" for="import-file">Sicherung importieren</label>
+        <input type="file" id="import-file" accept="application/json,.json" hidden>
+      </div>
+      <div class="row wrap">
+        <button type="button" class="btn" id="btn-add-defaults">Fehlende Standard-Aufgaben ergänzen</button>
+        <button type="button" class="btn btn-danger" id="btn-reset">Alles zurücksetzen</button>
+      </div>
+
+      <div class="dlg-actions">
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="btn-settings-close">Abbrechen</button>
+        <button type="submit" class="btn btn-primary">Speichern</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="js/schedule.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

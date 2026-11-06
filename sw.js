@@ -22,11 +22,13 @@ self.addEventListener("activate", (e) => {
 });
 
 // Netzwerk zuerst (für Updates), bei Offline aus dem Cache.
+// "no-cache": immer beim Server nachfragen, nie eine alte Datei aus dem Browser-Speicher
+// nehmen – sonst können alte und neue Dateien gemischt werden.
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET" || new URL(e.request.url).origin !== self.location.origin) return;
   e.respondWith((async () => {
     try {
-      const res = await fetch(e.request);
+      const res = await fetch(new Request(e.request.url, { cache: "no-cache", credentials: "same-origin" }));
       if (res.ok) {
         const c = await caches.open(APP_CACHE);
         c.put(e.request, res.clone());

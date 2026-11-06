@@ -31,4 +31,11 @@ const version = (process.env.GITHUB_SHA || String(Date.now())).slice(0, 8);
 const swPath = join(dist, "sw.js");
 writeFileSync(swPath, readFileSync(swPath, "utf8").replace(/const VERSION = "[^"]*";/, `const VERSION = "${version}";`));
 
+// Versionsnummer an alle Dateien hängen: So lädt ein Gerät nie alte und neue Dateien gemischt.
+const edit = (file, fn) => { const p = join(dist, file); writeFileSync(p, fn(readFileSync(p, "utf8"))); };
+const v = `?v=${version}`;
+edit("index.html", (s) => s
+  .replace(/(href|src)="(css\/styles\.css|js\/schedule\.js|js\/app\.js|manifest\.webmanifest)"/g, `$1="$2${v}"`));
+edit("js/app.js", (s) => s.replace(/from "\.\/(defaults|config)\.js"/g, `from "./$1.js${v}"`));
+
 console.log(`✓ Haushaltsplan gebaut nach dist/ (Pfad: ${process.env.BASE_PATH ?? "/"}, Push: ${config.pushServerUrl || "–"}, Familie: ${config.familieUrl || "–"})`);

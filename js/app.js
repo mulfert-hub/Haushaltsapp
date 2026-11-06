@@ -778,6 +778,13 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 // Mitteilung angetippt → Service Worker meldet sich
 navigator.serviceWorker?.addEventListener("message", (e) => { if (e.data === "refresh") { state = loadState(); render(); } });
 
+// Unerwartete Fehler sichtbar machen statt still zu scheitern
+function showError(msg) {
+  try { showToast("Fehler: " + msg + " – bitte App schließen und neu öffnen.", false); } catch { /* ignorieren */ }
+}
+window.addEventListener("error", (e) => showError(e.message || "unbekannt"));
+window.addEventListener("unhandledrejection", (e) => showError((e.reason && e.reason.message) || String(e.reason)));
+
 // ---------- Start ----------
 
 async function init() {

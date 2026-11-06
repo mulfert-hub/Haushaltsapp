@@ -1,0 +1,42 @@
+# Veröffentlicht den Push-Server (server/) als Cloudflare Worker.
+# Einmalig nötig – Repository → Settings → Secrets and variables → Actions:
+#   CLOUDFLARE_API_TOKEN   API-Token mit der Vorlage „Edit Cloudflare Workers“
+#   CLOUDFLARE_ACCOUNT_ID  Konto-ID (Cloudflare-Dashboard → Workers & Pages, rechte Spalte)
+name: Push-Server veröffentlichen
+
+on:
+  push:
+    branches: [main]
+    paths: ["server/**", ".github/workflows/server.yml"]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - name: Speicher (KV) anlegen, falls noch nicht vorhanden
+        run: |
+          set -euo pipefail
+          TITLE="haushalt-push-HAUSHALT_KV"
+          ID=$(npx wrangler kv namespace list | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const l=JSON.parse(s.slice(s.indexOf("[")));const n=l.find(x=>x.title===process.argv[1]);process.stdout.write(n?n.id:"")})' "$TITLE")
+          if [ -z "$ID" ]; then
+            npx wrangler kv namespace create "$TITLE"
+            ID=$(npx wrangler kv namespace list | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const l=JSON.parse(s.slice(s.indexOf("[")));const n=l.find(x=>x.title===process.argv[1]);process.stdout.write(n?n.id:"")})' "$TITLE")
+          fi
+          test -n "$ID"
+          sed -i "s/KV_NAMESPACE_ID/$ID/" wrangler.toml
+      - run: npx wrangler deploy

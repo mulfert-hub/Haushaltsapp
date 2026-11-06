@@ -1,4 +1,5 @@
 import { DEFAULT_TASKS } from "./defaults.js";
+import { CONFIG } from "./config.js";
 
 const S = window.Schedule;
 const STORAGE_KEY = "haushaltsplan.v1";
@@ -42,6 +43,11 @@ let undoSnapshot = null;
 let toastTimer = null;
 
 function save() {
+  saveLocal();
+  schedulePushSync();
+}
+
+function saveLocal() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* voll/privat */ }
   mirrorToCache();
 }
@@ -325,8 +331,9 @@ async function requestNotify() {
   const p = await Notification.requestPermission();
   updateNotifyBanner();
   if (p === "granted") {
+    await enablePush();
     await registerPeriodicSync();
-    checkDue(true);
+    checkDue();
   }
 }
 
@@ -339,6 +346,7 @@ async function showNotification(title, options) {
 async function checkDue() {
   render();
   if (!("Notification" in window) || Notification.permission !== "granted") return;
+  if (pushActive()) return; // Der Server übernimmt die Erinnerungen.
   const notified = await readNotified();
   const list = S.tasksToNotify(state, notified, Date.now());
   if (!list.length) return;
@@ -359,6 +367,106 @@ async function registerPeriodicSync() {
       await swReg.periodicSync.register("check-due", { minInterval: 60 * 60 * 1000 });
     }
   } catch { /* nicht unterstützt */ }
+}
+
+// ---------- Push über den Server ----------
+
+let pushError = "";
+let pushSyncTimer = null;
+
+function pushServer() {
+  return String(state.settings.pushServer || CONFIG.pushServerUrl || "").trim().replace(/\/+$/, "");
+}
+function pushActive() {
+  return !!(state.push && state.push.endpoint && state.push.server === pushServer() && pushServer());
+}
+
+function b64urlToBytes(s) {
+  const b = atob(s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4));
+  return Uint8Array.from(b, (c) => c.charCodeAt(0));
+}
+
+async function api(path, options = {}) {
+  const res = await fetch(pushServer() + path, {
+    ...options,
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Server antwortet mit ${res.status}`);
+  return data;
+}
+
+/** Gerät beim Push-Server anmelden (oder Anmeldung auffrischen). */
+async function enablePush() {
+  pushError = "";
+  const server = pushServer();
+  if (!server) { if (state.push) { state.push = null; saveLocal(); } return false; }
+  if (!swReg || !("PushManager" in window) || !("Notification" in window) || Notification.permission !== "granted") return false;
+  try {
+    const { publicKey } = await api("/api/vapid-public-key");
+    let sub = await swReg.pushManager.getSubscription();
+    const currentKey = sub && sub.options && sub.options.applicationServerKey
+      ? btoa(String.fromCharCode(...new Uint8Array(sub.options.applicationServerKey))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+      : null;
+    if (sub && currentKey && currentKey !== publicKey) { await sub.unsubscribe(); sub = null; }
+    if (!sub) sub = await swReg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlToBytes(publicKey) });
+    state.push = { endpoint: sub.endpoint, server };
+    saveLocal();
+    await syncPush(sub);
+    return true;
+  } catch (e) {
+    pushError = e.message || String(e);
+    console.warn("Push-Anmeldung fehlgeschlagen", e);
+    return false;
+  }
+}
+
+function schedulePushSync() {
+  if (!pushActive()) return;
+  clearTimeout(pushSyncTimer);
+  pushSyncTimer = setTimeout(() => syncPush().catch((e) => { pushError = e.message; }), 800);
+}
+
+/** Aktuelle Fälligkeitstermine an den Server schicken. */
+async function syncPush(sub) {
+  if (!pushServer()) return;
+  sub = sub || (swReg && (await swReg.pushManager.getSubscription()));
+  if (!sub) return;
+  await api("/api/subscription", {
+    method: "PUT",
+    body: JSON.stringify({
+      subscription: sub.toJSON(),
+      tz: Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Berlin",
+      notifyTime: state.settings.notifyTime,
+      enabled: !!state.settings.notifyEnabled,
+      tasks: state.tasks.map((t) => ({ id: t.id, name: t.name, room: t.room || "", due: S.dayKey(S.dueDate(t)) })),
+    }),
+  });
+  pushError = "";
+}
+
+async function disablePush() {
+  try {
+    const sub = swReg && (await swReg.pushManager.getSubscription());
+    if (sub && state.push && state.push.server) {
+      await fetch(state.push.server + "/api/subscription", {
+        method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: sub.endpoint }),
+      }).catch(() => {});
+    }
+    if (sub) await sub.unsubscribe();
+  } catch { /* ignorieren */ }
+  state.push = null;
+  saveLocal();
+}
+
+function pushStatusText() {
+  if (!pushServer()) return "Kein Push-Server eingetragen: Erinnerungen kommen nur, solange die App läuft.";
+  if (pushActive() && !pushError) return "✓ Push über den Server ist aktiv. Erinnerungen kommen auch bei geschlossener App.";
+  if (pushError) return "Push-Server nicht erreichbar: " + pushError;
+  if (!("PushManager" in window)) return isIOS() && !isStandalone()
+    ? "Für Push auf dem iPhone die App zuerst zum Home-Bildschirm hinzufügen."
+    : "Dieser Browser unterstützt keinen Web-Push.";
+  return "Push-Server eingetragen. Erlaube Mitteilungen, um das Gerät anzumelden.";
 }
 
 // ---------- Kalender (.ics) ----------
@@ -415,7 +523,10 @@ function openSettings() {
   const f = $("#form-settings");
   f.notifyTime.value = state.settings.notifyTime;
   f.notifyEnabled.checked = !!state.settings.notifyEnabled;
+  f.pushServer.value = pushServer();
+  f.pushServer.placeholder = "https://haushalt-push.….workers.dev";
   $("#notify-status").textContent = notifySupportText();
+  $("#push-status").textContent = pushStatusText();
   $("#dlg-settings").showModal();
 }
 
@@ -424,9 +535,17 @@ async function saveSettings() {
   const timeChanged = f.notifyTime.value !== state.settings.notifyTime;
   state.settings.notifyTime = f.notifyTime.value || "09:00";
   state.settings.notifyEnabled = f.notifyEnabled.checked;
+  const newServer = f.pushServer.value.trim().replace(/\/+$/, "");
+  const serverChanged = newServer !== pushServer();
+  if (serverChanged) {
+    await disablePush();
+    // Leer = Standard aus config.js verwenden
+    state.settings.pushServer = newServer === (CONFIG.pushServerUrl || "").replace(/\/+$/, "") ? "" : newServer;
+  }
   save();
   updateNotifyBanner();
   if (state.settings.notifyEnabled && "Notification" in window && Notification.permission === "default") await requestNotify();
+  else if (serverChanged) await enablePush();
   if (timeChanged) checkDue();
 }
 
@@ -444,7 +563,7 @@ function importBackup(file) {
         history: Array.isArray(t.history) ? t.history.slice(0, 30) : [], note: String(t.note || ""),
       }));
       s.settings = { notifyTime: "09:00", notifyEnabled: true, ...(s.settings || {}) };
-      state = { version: 1, tasks: s.tasks, settings: s.settings };
+      state = { version: 1, tasks: s.tasks, settings: { ...s.settings, pushServer: state.settings.pushServer || "" }, push: state.push };
       save();
       render();
       $("#dlg-settings").close();
@@ -504,9 +623,22 @@ $("#btn-test-notify").addEventListener("click", async () => {
   if (!("Notification" in window)) { alert(notifySupportText()); return; }
   if (Notification.permission !== "granted") await requestNotify();
   if (Notification.permission === "granted") {
-    await showNotification("Test: Haushaltsplan", { body: "So sehen deine Erinnerungen aus.", tag: "haushalt-test" });
+    if (pushServer() && !pushActive()) await enablePush();
+    if (pushActive()) {
+      try {
+        const sub = await swReg.pushManager.getSubscription();
+        await syncPush(sub);
+        await api("/api/test", { method: "POST", body: JSON.stringify({ endpoint: sub.endpoint }) });
+      } catch (e) {
+        pushError = e.message;
+        await showNotification("Test: Haushaltsplan", { body: "Lokale Mitteilung (Server nicht erreichbar).", tag: "haushalt-test" });
+      }
+    } else {
+      await showNotification("Test: Haushaltsplan", { body: "So sehen deine Erinnerungen aus.", tag: "haushalt-test" });
+    }
   }
   $("#notify-status").textContent = notifySupportText();
+  $("#push-status").textContent = pushStatusText();
 });
 $("#btn-ics").addEventListener("click", exportIcs);
 $("#btn-export").addEventListener("click", () =>
@@ -515,7 +647,9 @@ $("#import-file").addEventListener("change", (e) => { if (e.target.files[0]) imp
 $("#btn-add-defaults").addEventListener("click", addMissingDefaults);
 $("#btn-reset").addEventListener("click", () => {
   if (!confirm("Alle Aufgaben und Einstellungen löschen und mit den Standard-Aufgaben neu beginnen?")) return;
+  const push = state.push;
   state = freshState();
+  state.push = push;
   save();
   writeNotified({});
   render();
@@ -532,6 +666,11 @@ navigator.serviceWorker?.addEventListener("message", (e) => { if (e.data === "re
 // ---------- Start ----------
 
 async function init() {
+  if (CONFIG.familieUrl) {
+    const a = $("#back-familie");
+    a.href = CONFIG.familieUrl;
+    a.hidden = false;
+  }
   render();
   updateNotifyBanner();
   if ("serviceWorker" in navigator) {
@@ -541,8 +680,11 @@ async function init() {
       swReg = await navigator.serviceWorker.getRegistration() || swReg;
     } catch { /* z. B. file:// */ }
   }
-  save();
-  if ("Notification" in window && Notification.permission === "granted") await registerPeriodicSync();
+  saveLocal();
+  if ("Notification" in window && Notification.permission === "granted") {
+    await enablePush(); // frischt Anmeldung und Termine beim Server auf
+    await registerPeriodicSync();
+  }
   checkDue();
   // Solange die App offen ist (auch im Hintergrund-Tab), jede Minute prüfen.
   setInterval(checkDue, 60 * 1000);

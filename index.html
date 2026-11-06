@@ -18,7 +18,12 @@
 <body>
   <header class="topbar">
     <div class="topbar-inner">
-      <h1>Haushaltsplan</h1>
+      <div class="title-wrap">
+        <a class="back-link" id="back-familie" href="./" hidden aria-label="Zurück zur Familien-App">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6l-6 6 6 6"/></svg>
+        </a>
+        <h1>Haushaltsplan</h1>
+      </div>
       <div class="topbar-actions">
         <button class="icon-btn" id="btn-settings" aria-label="Einstellungen">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Zm7.4-2.5.1-1-.1-1 2.1-1.6-2-3.5-2.5 1a7.5 7.5 0 0 0-1.7-1L15 3h-4l-.4 2.6c-.6.3-1.2.6-1.7 1l-2.5-1-2 3.5L6.5 11l-.1 1 .1 1-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1L11 21h4l.4-2.6c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5Z"/></svg>
@@ -104,6 +109,11 @@
       <label class="check">
         <input type="checkbox" name="notifyEnabled">
         <span>Mitteilungen senden, wenn Aufgaben fällig werden</span>
+      </label>
+      <label class="field">
+        <span>Push-Server</span>
+        <input name="pushServer" type="url" inputmode="url" autocomplete="off" spellcheck="false">
+        <small id="push-status"></small>
       </label>
       <div class="row wrap">
         <button type="button" class="btn" id="btn-test-notify">Test-Mitteilung</button>

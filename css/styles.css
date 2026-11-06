@@ -203,3 +203,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
 #history ul { margin: 4px 0 0; padding-left: 18px; color: var(--muted); font-size: .88rem; }
 #history .field > span { margin-bottom: 0; }
+
+.title-wrap { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.back-link { width: 36px; height: 36px; margin-left: -8px; display: grid; place-items: center; border-radius: 50%; }
+.back-link:hover { background: var(--surface-2); }
+.back-link svg { width: 24px; height: 24px; fill: none; stroke: var(--text); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }

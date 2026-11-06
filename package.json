@@ -1,0 +1,13 @@
+{
+  "name": "haushaltsplan",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Wiederkehrende Haushaltsaufgaben mit Erinnerungen (PWA)",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "python3 -m http.server 8000",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "engines": { "node": ">=20" }
+}

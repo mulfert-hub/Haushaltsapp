@@ -1,0 +1,20 @@
+# Cloudflare Worker für die Push-Erinnerungen der Haushalts-App.
+# Veröffentlichen: siehe ../README.md (Abschnitt „Push-Server“).
+name = "haushalt-push"
+main = "src/index.js"
+compatibility_date = "2025-06-01"
+
+[triggers]
+# Alle 15 Minuten prüfen, ob Erinnerungen fällig sind
+crons = ["*/15 * * * *"]
+
+[vars]
+# Seiten, die den Server benutzen dürfen (kommagetrennt)
+ALLOWED_ORIGINS = "https://mulfert-hub.github.io,http://localhost:8000,http://localhost:5173"
+# Kontaktangabe für die Push-Dienste (VAPID "sub")
+VAPID_SUBJECT = "https://mulfert-hub.github.io/Family-Dashboard-/"
+
+[[kv_namespaces]]
+binding = "HAUSHALT_KV"
+# Die ID trägt der GitHub-Workflow beim Veröffentlichen automatisch ein.
+id = "KV_NAMESPACE_ID"
